@@ -1,6 +1,7 @@
-use std::{ops::Shr, str::FromStr};
+use std::{io, ops::Shr, str::FromStr};
 
 use anyhow::Context;
+use clap::Parser;
 use derive_more::From;
 use generic_new::GenericNew;
 use recap::Recap;
@@ -52,8 +53,23 @@ fn highest_block_after_processing<const WIDTH: usize, const HEIGHT: usize>(
     Ok(highest_block(&final_grid))
 }
 
+// todo: nicer args, add tracing etc
+#[derive(Debug, Parser)]
+#[command(about, override_usage = "tetris < input.txt")]
+struct Args;
+
 fn main() -> anyhow::Result<()> {
-    todo!()
+    Args::parse();
+    for line in io::stdin().lines() {
+        let input_blocks = parse_line(&line.context("couldn't read line from stdin")?)
+            .context("couldn't parse line")?;
+        println!(
+            "{}",
+            highest_block_after_processing::<WIDTH, SAFE_HEIGHT>(input_blocks)
+                .context("couldn't place input block on congested grid")?
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug, EnumString, Deserialize, PartialEq, Eq, Clone, Copy)]

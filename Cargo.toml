@@ -1,5 +1,17 @@
 [package]
 name = "tetris"
+description = """
+DRW Tetris
+==========
+
+For each line in stdin, interpret that line as a comma-separated sequence of INPUT_BLOCK, where
+INPUT_BLOCK : { Q, Z, S, T, I, L, J } ~ DIGIT
+
+Each INPUT_BLOCK is placed on a 10 * 103 GRID at INPUT_BLOCK.DIGIT position, and dropped.
+Rows clear in typical tetris style.
+
+After the sequence has been processed, print the height of the tallest occupied row.
+"""
 version = "0.1.0"
 edition = "2021"
 
