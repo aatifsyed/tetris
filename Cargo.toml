@@ -25,9 +25,7 @@ derive_more = "0.99.17"
 generic-new = "0.2.0"
 recap = "0.1.2"
 serde = { version = "1.0.145", features = ["derive"] }
-static_assertions = "1.1.0"
 strum = { version = "0.24.1", features = ["derive"] }
-tap = "1.0.1"
 thiserror = "1.0.37"
 
 [dev-dependencies]
