@@ -3,7 +3,6 @@ use std::{io, ops::Shr, str::FromStr};
 use anyhow::Context;
 use clap::Parser;
 use derive_more::From;
-use generic_new::GenericNew;
 use recap::Recap;
 use serde::Deserialize;
 use strum::EnumString;
@@ -11,6 +10,25 @@ use tetris::{is_occupied, CellState, Grid};
 
 const WIDTH: usize = 10; // from brief
 const SAFE_HEIGHT: usize = 100 /* from brief */ + 3 /* tallest block */;
+
+// todo: nicer args, add tracing etc
+#[derive(Debug, Parser)]
+#[command(about, override_usage = "tetris < input.txt")]
+struct Args;
+
+fn main() -> anyhow::Result<()> {
+    Args::parse();
+    for line in io::stdin().lines() {
+        let input_blocks = parse_line(&line.context("couldn't read line from stdin")?)
+            .context("couldn't parse line")?;
+        println!(
+            "{}",
+            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), input_blocks)
+                .context("couldn't place input block on congested grid")?
+        );
+    }
+    Ok(())
+}
 
 /// drop each [InputBlock] onto a [Grid], and clear rows, returning the final state of the grid
 fn process_blocks<const WIDTH: usize, const HEIGHT: usize>(
@@ -25,7 +43,7 @@ fn process_blocks<const WIDTH: usize, const HEIGHT: usize>(
         let new_shape = grid_for(shape).shr(starting_column);
         grid = grid
             .drop(new_shape)
-            .context("grid's top layer are already occupied")?
+            .context("grid's top row are already occupied")?
             .with_solid_rows_cleared();
     }
     Ok(grid)
@@ -50,25 +68,6 @@ fn highest_block_after_processing<const WIDTH: usize, const HEIGHT: usize>(
     Ok(highest_block(&final_grid))
 }
 
-// todo: nicer args, add tracing etc
-#[derive(Debug, Parser)]
-#[command(about, override_usage = "tetris < input.txt")]
-struct Args;
-
-fn main() -> anyhow::Result<()> {
-    Args::parse();
-    for line in io::stdin().lines() {
-        let input_blocks = parse_line(&line.context("couldn't read line from stdin")?)
-            .context("couldn't parse line")?;
-        println!(
-            "{}",
-            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), input_blocks)
-                .context("couldn't place input block on congested grid")?
-        );
-    }
-    Ok(())
-}
-
 #[derive(Debug, EnumString, Deserialize, PartialEq, Eq, Clone, Copy)]
 enum BlockShape {
     Q,
@@ -80,13 +79,14 @@ enum BlockShape {
     J,
 }
 
-#[derive(Debug, Deserialize, Recap, PartialEq, Eq, Clone, Copy, GenericNew, From)]
+#[derive(Debug, Deserialize, Recap, PartialEq, Eq, Clone, Copy, From)]
 #[recap(regex = r#"(?P<shape>\w)(?P<starting_column>\d+)"#)]
 struct InputBlock {
-    shape: BlockShape,
-    starting_column: usize,
+    pub shape: BlockShape,
+    pub starting_column: usize,
 }
 
+// todo: make a grammar and use a parser
 fn parse_line(s: &str) -> anyhow::Result<Vec<InputBlock>> {
     Ok(s.trim()
         .split(',')
@@ -94,12 +94,16 @@ fn parse_line(s: &str) -> anyhow::Result<Vec<InputBlock>> {
         .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn fill<const WIDTH: usize, const HEIGHT: usize>(
-    grid: &mut Grid<WIDTH, HEIGHT>,
+/// Place `with` in each of the `coords`
+/// # Panics
+/// - If any of the coords are out of bounds
+fn fill<const WIDTH: usize, const HEIGHT: usize, CellT: Clone>(
+    grid: &mut Grid<WIDTH, HEIGHT, CellT>,
+    with: CellT,
     coords: impl IntoIterator<Item = (usize, usize)>,
 ) {
     for (row_ix, col_ix) in coords {
-        grid.rows[row_ix][col_ix] = CellState::Occupied;
+        grid.rows[row_ix][col_ix] = with.clone();
     }
 }
 
@@ -107,17 +111,18 @@ fn fill<const WIDTH: usize, const HEIGHT: usize>(
 /// # Panics
 /// - If the grid is too small to fit the shape
 fn grid_for<const WIDTH: usize, const HEIGHT: usize>(shape: BlockShape) -> Grid<WIDTH, HEIGHT> {
+    use CellState::Occupied as X;
     // once const rust is more mature, we can static assert that WIDTH fits I and HEIGHT fits J/L
     // (the code will currently panic)
     let mut grid = Grid::default();
     match shape {
-        BlockShape::Q => fill(&mut grid, [(0, 0), (0, 1), (1, 0), (1, 1)]),
-        BlockShape::Z => fill(&mut grid, [(0, 0), (0, 1), (1, 1), (1, 2)]),
-        BlockShape::S => fill(&mut grid, [(0, 1), (0, 2), (1, 0), (1, 1)]),
-        BlockShape::T => fill(&mut grid, [(0, 0), (0, 1), (0, 2), (1, 1)]),
-        BlockShape::I => fill(&mut grid, [(0, 0), (0, 1), (0, 2), (0, 3)]),
-        BlockShape::L => fill(&mut grid, [(0, 0), (1, 0), (2, 0), (2, 1)]),
-        BlockShape::J => fill(&mut grid, [(0, 1), (1, 1), (2, 1), (2, 0)]),
+        BlockShape::Q => fill(&mut grid, X, [(0, 0), (0, 1), (1, 0), (1, 1)]),
+        BlockShape::Z => fill(&mut grid, X, [(0, 0), (0, 1), (1, 1), (1, 2)]),
+        BlockShape::S => fill(&mut grid, X, [(0, 1), (0, 2), (1, 0), (1, 1)]),
+        BlockShape::T => fill(&mut grid, X, [(0, 0), (0, 1), (0, 2), (1, 1)]),
+        BlockShape::I => fill(&mut grid, X, [(0, 0), (0, 1), (0, 2), (0, 3)]),
+        BlockShape::L => fill(&mut grid, X, [(0, 0), (1, 0), (2, 0), (2, 1)]),
+        BlockShape::J => fill(&mut grid, X, [(0, 1), (1, 1), (2, 1), (2, 0)]),
     }
     grid
 }
@@ -134,9 +139,9 @@ mod tests {
         assert_eq!(
             parse_line("I0,I4,Q8")?,
             vec![
-                InputBlock::new(I, 0),
-                InputBlock::new(I, 4),
-                InputBlock::new(Q, 8)
+                InputBlock::from((I, 0)),
+                InputBlock::from((I, 4)),
+                InputBlock::from((Q, 8))
             ]
         );
         Ok(())

@@ -4,12 +4,13 @@ use std::{
     ops::{self, BitAnd},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A generic matrix of cells
 // choice: static array, not hashmap of coords, probably better optimised
 // choice: static array, could've used array2D etc
 // choice: row-wise, because we'll be searching and clearing rows
 // choice: generic CellT, not e.g bitvec because a likely product extension is
 //         coloring individual blocks etc
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Grid<const WIDTH: usize, const HEIGHT: usize, CellT = CellState> {
     pub rows: [[CellT; WIDTH]; HEIGHT],
 }
