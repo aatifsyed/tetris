@@ -29,3 +29,7 @@ static_assertions = "1.1.0"
 strum = { version = "0.24.1", features = ["derive"] }
 tap = "1.0.1"
 thiserror = "1.0.37"
+
+[dev-dependencies]
+assert_cmd = "2.0.4"
+indoc = "1.0.7"
