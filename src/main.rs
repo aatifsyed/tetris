@@ -34,12 +34,7 @@ fn process_blocks<const WIDTH: usize, const HEIGHT: usize>(
 fn first_occupied_row_ix<const WIDTH: usize, const HEIGHT: usize>(
     grid: &Grid<WIDTH, HEIGHT>,
 ) -> Option<usize> {
-    for i in 0..HEIGHT {
-        if grid.rows[i].iter().any(is_occupied) {
-            return Some(i);
-        }
-    }
-    None
+    (0..HEIGHT).find(|&row_ix| grid.rows[row_ix].iter().any(is_occupied))
 }
 fn highest_block<const WIDTH: usize, const HEIGHT: usize>(grid: &Grid<WIDTH, HEIGHT>) -> usize {
     first_occupied_row_ix(grid)
@@ -93,7 +88,8 @@ struct InputBlock {
 }
 
 fn parse_line(s: &str) -> anyhow::Result<Vec<InputBlock>> {
-    Ok(s.split(",")
+    Ok(s.trim()
+        .split(',')
         .map(InputBlock::from_str)
         .collect::<Result<Vec<_>, _>>()?)
 }
