@@ -1,5 +1,5 @@
 use array_macro::array;
-use std::ops;
+use std::{fmt, ops};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 // choice: static array, not hashmap of coords, probably better optimised
@@ -7,8 +7,8 @@ use std::ops;
 // choice: row-wise, because we'll be searching and clearing rows
 // choice: generic CellT, not e.g bitvec because a likely product extension is
 //         coloring individual blocks etc
-pub struct Grid<const WIDTH: usize, const HEIGHT: usize, CellT> {
-    rows: [[CellT; WIDTH]; HEIGHT],
+pub struct Grid<const WIDTH: usize, const HEIGHT: usize, CellT = CellState> {
+    pub rows: [[CellT; WIDTH]; HEIGHT],
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize, CellT> Grid<WIDTH, HEIGHT, CellT>
@@ -38,11 +38,11 @@ pub struct WouldClobber {
     col_ix: usize,
 }
 
-fn is_empty<T: Default + PartialEq>(t: &T) -> bool {
+pub fn is_empty<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-fn is_occupied<T: Default + PartialEq>(t: &T) -> bool {
+pub fn is_occupied<T: Default + PartialEq>(t: &T) -> bool {
     !is_empty(t)
 }
 
@@ -178,7 +178,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub enum CellState {
     // The reason we do a song and dance with `Default` above is because
     // putting information in `Occupied` is now trivial - a likely extension for
@@ -188,35 +188,45 @@ pub enum CellState {
     Unoccupied,
 }
 
+impl fmt::Debug for CellState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Occupied => write!(f, "#"),
+            Self::Unoccupied => write!(f, "."),
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! grid {
+    ($([$($cell:tt)* $(,)?]),* $(,)?) => {
+        Grid {
+            rows:
+                [ // begin grid
+                    $([ // begin row
+                        $(
+                            grid!(@cell $cell),
+                        )*
+                    ]),* // end row
+                ] // end grid
+            }
+    };
+    (@cell #) => {
+        CellState::Occupied
+    };
+    (@cell .) => {
+        CellState::Unoccupied
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::{Add, Shr};
 
     use super::*;
 
-    macro_rules! grid {
-        ($([$($cell:tt)* $(,)?]),* $(,)?) => {
-            Grid {
-                rows:
-                    [ // begin grid
-                        $([ // begin row
-                            $(
-                                grid!(@cell $cell),
-                            )*
-                        ]),* // end row
-                    ] // end grid
-                }
-        };
-        (@cell #) => {
-            CellState::Occupied
-        };
-        (@cell .) => {
-            CellState::Unoccupied
-        };
-    }
-
     #[test]
-    fn shift_down_emtpy() {
+    fn shift_down_empty() {
         let _: Grid<0, 0, CellState> = grid![].shift_down(1);
     }
 
