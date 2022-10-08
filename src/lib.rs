@@ -20,9 +20,10 @@ impl<const WIDTH: usize, const HEIGHT: usize> Grid<WIDTH, HEIGHT, CellState> {
         }
     }
     pub fn drop(&self, shape: &Self) -> Self {
+        // todo: optimise so that we just get the collision point and bump that many rows
         todo!()
     }
-    pub fn collides(&self, other: &Self) -> bool {
+    fn collides(&self, other: &Self) -> bool {
         for (self_cell, other_cell) in self.rows.iter().flatten().zip(other.rows.iter().flatten()) {
             if let (CellState::Occupied, CellState::Occupied) = (self_cell, other_cell) {
                 return true;
@@ -30,7 +31,7 @@ impl<const WIDTH: usize, const HEIGHT: usize> Grid<WIDTH, HEIGHT, CellState> {
         }
         false
     }
-    pub fn bump_up(&self) -> Self {
+    fn bump_up(&self) -> Self {
         let mut bumped = Self::empty();
         for (src, dst) in self.rows.iter().skip(1).zip(bumped.rows.iter_mut()) {
             *dst = *src
@@ -49,6 +50,39 @@ pub enum CellState {
 mod tests {
     use super::*;
 
+    macro_rules! grid {
+        ($([$($cell:tt)* $(,)?]),* $(,)?) => {
+            Grid {
+                rows:
+                    [ // begin grid
+                        $([ // begin row
+                            $(
+                                grid!(@cell $cell),
+                            )*
+                        ]),* // end row
+                    ] // end grid
+                }
+        };
+        (@cell #) => {
+            CellState::Occupied
+        };
+        (@cell .) => {
+            CellState::Unoccupied
+        };
+    }
+
     #[test]
-    fn it_works() {}
+    fn bump_empty() {
+        let _: Grid<0, 0, CellState> = grid![].bump_up();
+    }
+
+    #[test]
+    fn bump_single_row_clears_it() {
+        assert_eq!(grid![[#]].bump_up(), grid![[.]]);
+    }
+
+    #[test]
+    fn bumped_row_falls_off_edge() {
+        assert_eq!(grid![[#],[#]].bump_up(), grid![[#],[.]])
+    }
 }
