@@ -6,7 +6,7 @@ use generic_new::GenericNew;
 use recap::Recap;
 use serde::Deserialize;
 use strum::EnumString;
-use tetris::{is_empty, CellState, Grid};
+use tetris::{CellState, Grid};
 
 fn print<const WIDTH: usize, const HEIGHT: usize>(grid: &Grid<WIDTH, HEIGHT>, comment: &str) {
     println!("{comment}");
@@ -173,14 +173,54 @@ mod tests {
     }
 
     #[test]
-    fn example1() -> anyhow::Result<()> {
-        use BlockShape::{I, J, L, Q, S, T, Z};
+    fn process_example1() -> anyhow::Result<()> {
+        use BlockShape::{I, Q};
         assert_eq!(
             process_blocks([(I, 0), (I, 4), (Q, 8)])?,
             grid![
                 [. . . . . . . . . . ],
                 [. . . . . . . . . . ],
                 [. . . . . . . . # # ],
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn process_example2() -> anyhow::Result<()> {
+        use BlockShape::{I, T, Z};
+        assert_eq!(
+            process_blocks([(T, 1), (Z, 3), (I, 4)])?,
+            grid![
+                [. . . . # # # # . . ],
+                [. . . # # . . . . . ],
+                [. # # # # # . . . . ],
+                [. . # . . . . . . . ],
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn process_example3() -> anyhow::Result<()> {
+        use BlockShape::{I, Q};
+        assert_eq!(
+            process_blocks([
+                (Q, 0),
+                (I, 2),
+                (I, 6),
+                (I, 0),
+                (I, 6),
+                (I, 6),
+                (Q, 2),
+                (Q, 4)
+            ])?,
+            grid![
+                [. . . . . . . . . .],
+                [. . . . . . . . . .],
+                [. . # # . . . . . .],
+                [. . # # . . . . . .],
+                [# # . . # # # # # #],
             ]
         );
         Ok(())

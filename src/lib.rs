@@ -38,11 +38,11 @@ pub struct WouldClobber {
     col_ix: usize,
 }
 
-pub fn is_empty<T: Default + PartialEq>(t: &T) -> bool {
+fn is_empty<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-pub fn is_occupied<T: Default + PartialEq>(t: &T) -> bool {
+fn is_occupied<T: Default + PartialEq>(t: &T) -> bool {
     !is_empty(t)
 }
 
@@ -131,38 +131,115 @@ where
 
 impl<const WIDTH: usize, const HEIGHT: usize, CellT> Grid<WIDTH, HEIGHT, CellT>
 where
-    CellT: Default + Clone,
-{
-    pub fn shift_down(mut self, rhs: usize) -> Self {
-        for _ in 0..rhs {
-            self = self.bump_down();
-        }
-        self
-    }
-
-    pub fn bump_down(mut self) -> Self {
-        if let Some(last_row) = self.rows.last_mut() {
-            *last_row = Self::empty_row();
-        }
-        if self.rows.len() != 0 {
-            self.rows.rotate_right(1);
-        }
-        self
-    }
-}
-
-impl<const WIDTH: usize, const HEIGHT: usize, CellT> Grid<WIDTH, HEIGHT, CellT>
-where
     CellT: Default + Clone + PartialEq,
 {
-    pub fn drop(self, rhs: Self) -> Option<Self> {
-        (0..HEIGHT)
-            .map(|shift| self.clone() + rhs.clone().shift_down(shift))
-            .take_while(Result::is_ok)
-            .map(Result::unwrap)
-            .last()
+    /// Try and move this grid down, fail if the last row is non-empty
+    /// ```
+    /// use tetris::grid;
+    /// assert_eq!(grid![
+    ///     [. . . . ],
+    ///     [. # # . ],
+    ///     [. # # . ],
+    ///     [. . . . ],
+    /// ].try_bump_down(),
+    /// Some(grid![
+    ///     [. . . . ], // ↳ empty row wraps around
+    ///     [. . . . ], // ↓
+    ///     [. # # . ], // ↓
+    ///     [. # # . ], // ↓
+    /// ]));
+    /// assert_eq!(grid![
+    ///     [. . . . ],
+    ///     [. . . . ],
+    ///     [. # # . ],
+    ///     [. # # . ],
+    /// ].try_bump_down(),
+    ///     None, // final row would fall off
+    /// );
+    ///
+    /// ```
+    pub fn try_bump_down(mut self) -> Option<Self> {
+        match self.rows.last() {
+            Some(last_row) if last_row.iter().all(is_empty) => {
+                self.rows.rotate_right(1);
+                Some(self)
+            }
+            Some(_) => None,
+            None => Some(self),
+        }
     }
 
+    /// Try and bump by `by` rows, returning None if any of those bumps would fail.
+    pub fn try_shift_down(mut self, by: usize) -> Option<Self> {
+        for _ in 0..by {
+            self = self.try_bump_down()?
+        }
+        Some(self)
+    }
+
+    /// Place `rhs` on the grid, and move it down until:
+    /// - it hits another block
+    /// - it hits the bottom of the grid
+    ///
+    /// Returns [None] if `rhs` can't be placed on the grid.
+    /// ```
+    /// use tetris::grid;
+    /// assert_eq!(grid![
+    ///     [. . . . ],
+    ///     [. . . . ],
+    ///     [. . . . ],
+    ///     [. . . . ],
+    ///     [. # # . ],
+    /// ].drop(grid![
+    ///     [# # . . ],
+    ///     [# # . . ],
+    ///     [. . . . ],
+    ///     [. . . . ],
+    ///     [. . . . ],
+    /// ]),
+    /// Some(grid![
+    ///     [. . . . ], // ↓
+    ///     [. . . . ], // ↓
+    ///     [# # . . ], // ↓
+    ///     [# # . . ], // ↳ we've hit blocks underneath
+    ///     [. # # . ],
+    /// ]));
+    /// ```
+    pub fn drop(self, rhs: Self) -> Option<Self> {
+        let mut furthest = (self.clone() + rhs.clone()).ok()?;
+
+        // bound by HEIGHT to catch an empty rhs
+        for shift in 0..HEIGHT {
+            match rhs.clone().try_shift_down(shift) {
+                Some(shifted) => match self.clone() + shifted {
+                    Ok(new_furthest) => furthest = new_furthest,
+                    Err(_) => break,
+                },
+                None => break, // rhs has hit the bottom of the grid
+            }
+        }
+        Some(furthest)
+    }
+
+    /// Clear full rows by shifting taller rows down
+    /// ```
+    /// use tetris::grid;
+    /// assert_eq!(grid![
+    ///     [. . . . . . . . . .],
+    ///     [. . # # . . . . . .],
+    ///     [. . # # . . . . . .],
+    ///     [# # # # # # # # # #], // ← will be removed
+    ///     [# # . . # # # # # #],
+    /// ].with_solid_rows_cleared(),
+    /// grid![
+    ///     [. . . . . . . . . .], // ↳ fresh new row
+    ///     [. . . . . . . . . .],
+    ///     [. . # # . . . . . .], // ↓
+    ///     [. . # # . . . . . .], // ↓
+    ///     [# # . . # # # # # #],
+    /// ]
+    /// )
+    /// ```
     pub fn with_solid_rows_cleared(mut self) -> Self {
         // outer loop is necessary because inner won't check the shifted row
         // could also do a mark and sweep
@@ -197,10 +274,20 @@ impl fmt::Debug for CellState {
     }
 }
 
+/// Construct a [Grid<_, _, CellState>], where `.` is [CellState::Unoccupied] and `#` is [CellState::Occupied]
+/// ```
+/// use tetris::grid;
+/// grid![
+///     [. . . . ],
+///     [. # # . ],
+///     [. # # . ],
+///     [. . . . ],
+/// ];
+/// ```
 #[macro_export]
 macro_rules! grid {
     ($([$($cell:tt)* $(,)?]),* $(,)?) => {
-        Grid {
+        $crate::Grid {
             rows:
                 [ // begin grid
                     $([ // begin row
@@ -212,10 +299,10 @@ macro_rules! grid {
             }
     };
     (@cell #) => {
-        CellState::Occupied
+        $crate::CellState::Occupied
     };
     (@cell .) => {
-        CellState::Unoccupied
+        $crate::CellState::Unoccupied
     };
 }
 
@@ -226,18 +313,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shift_down_empty() {
-        let _: Grid<0, 0, CellState> = grid![].shift_down(1);
-    }
-
-    #[test]
-    fn shift_down_clears_single_row() {
-        assert_eq!(grid![[#]].shift_down(1), grid![[.]]);
-    }
-
-    #[test]
-    fn shift_down_pushes_shifted_row_off_edge() {
-        assert_eq!(grid![[#],[#]].shift_down(1), grid![[.],[#]])
+    fn cant_shift_off_edge() {
+        assert_eq!(grid![[#]].try_shift_down(1), None)
     }
 
     #[test]
@@ -393,6 +470,50 @@ mod tests {
                 [. # .],
                 [. . #],
             ]
+        )
+    }
+
+    #[test]
+    fn final_addition_example1() {
+        assert_eq!(
+            grid![
+                [. . . . . . . . . .],
+                [. . . . . . . . . .],
+                [# # # # # # # # . .]
+            ]
+            .add(grid![
+                [. . . . . . . . # #],
+                [. . . . . . . . # #],
+                [. . . . . . . . . .],
+            ])
+            .unwrap(),
+            grid![
+                [. . . . . . . . # #],
+                [. . . . . . . . # #],
+                [# # # # # # # # . .]
+            ],
+        )
+    }
+
+    #[test]
+    fn final_drop_example1() {
+        assert_eq!(
+            grid![
+                [. . . . . . . . . .],
+                [. . . . . . . . . .],
+                [# # # # # # # # . .]
+            ]
+            .drop(grid![
+                [. . . . . . . . # #],
+                [. . . . . . . . # #],
+                [. . . . . . . . . .],
+            ])
+            .unwrap(),
+            grid![
+                [. . . . . . . . . .],
+                [. . . . . . . . # #],
+                [# # # # # # # # # #]
+            ],
         )
     }
 }
