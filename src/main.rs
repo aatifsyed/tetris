@@ -12,10 +12,11 @@ use tetris::{is_occupied, CellState, Grid};
 const WIDTH: usize = 10; // from brief
 const SAFE_HEIGHT: usize = 100 /* from brief */ + 3 /* tallest block */;
 
+/// drop each [InputBlock] onto a [Grid], and clear rows, returning the final state of the grid
 fn process_blocks<const WIDTH: usize, const HEIGHT: usize>(
+    mut grid: Grid<WIDTH, HEIGHT>,
     blocks: impl IntoIterator<Item = impl Into<InputBlock>>,
 ) -> anyhow::Result<Grid<WIDTH, HEIGHT>> {
-    let mut grid = Grid::default();
     for block in blocks {
         let InputBlock {
             shape,
@@ -47,9 +48,10 @@ fn highest_block<const WIDTH: usize, const HEIGHT: usize>(grid: &Grid<WIDTH, HEI
 }
 
 fn highest_block_after_processing<const WIDTH: usize, const HEIGHT: usize>(
+    grid: Grid<WIDTH, HEIGHT>,
     blocks: impl IntoIterator<Item = impl Into<InputBlock>>,
 ) -> anyhow::Result<usize> {
-    let final_grid = process_blocks::<WIDTH, HEIGHT>(blocks)?;
+    let final_grid = process_blocks(grid, blocks)?;
     Ok(highest_block(&final_grid))
 }
 
@@ -65,7 +67,7 @@ fn main() -> anyhow::Result<()> {
             .context("couldn't parse line")?;
         println!(
             "{}",
-            highest_block_after_processing::<WIDTH, SAFE_HEIGHT>(input_blocks)
+            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), input_blocks)
                 .context("couldn't place input block on congested grid")?
         );
     }
@@ -221,7 +223,7 @@ mod tests {
     #[test]
     fn process_example1() -> anyhow::Result<()> {
         assert_eq!(
-            process_blocks(EXAMPLE1)?,
+            process_blocks(Grid::default(), EXAMPLE1)?,
             grid![
                 [. . . . . . . . . . ],
                 [. . . . . . . . . . ],
@@ -234,7 +236,7 @@ mod tests {
     #[test]
     fn process_example2() -> anyhow::Result<()> {
         assert_eq!(
-            process_blocks(EXAMPLE2)?,
+            process_blocks(Grid::default(), EXAMPLE2)?,
             grid![
                 [. . . . # # # # . . ],
                 [. . . # # . . . . . ],
@@ -248,7 +250,7 @@ mod tests {
     #[test]
     fn process_example3() -> anyhow::Result<()> {
         assert_eq!(
-            process_blocks(EXAMPLE3)?,
+            process_blocks(Grid::default(), EXAMPLE3)?,
             grid![
                 [. . . . . . . . . .],
                 [. . . . . . . . . .],
@@ -262,7 +264,7 @@ mod tests {
     #[test]
     fn highest_block_example1() -> anyhow::Result<()> {
         assert_eq!(
-            highest_block_after_processing::<WIDTH, SAFE_HEIGHT>(EXAMPLE1)?,
+            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), EXAMPLE1)?,
             1
         );
         Ok(())
@@ -271,7 +273,7 @@ mod tests {
     #[test]
     fn highest_block_example2() -> anyhow::Result<()> {
         assert_eq!(
-            highest_block_after_processing::<WIDTH, SAFE_HEIGHT>(EXAMPLE2)?,
+            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), EXAMPLE2)?,
             4
         );
         Ok(())
@@ -280,7 +282,7 @@ mod tests {
     #[test]
     fn highest_block_example3() -> anyhow::Result<()> {
         assert_eq!(
-            highest_block_after_processing::<WIDTH, SAFE_HEIGHT>(EXAMPLE3)?,
+            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), EXAMPLE3)?,
             3
         );
         Ok(())
