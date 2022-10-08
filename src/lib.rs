@@ -32,14 +32,18 @@ where
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq, Clone, Copy)]
-#[error("would clobber non-default cell at row {row_n}, column {col_n} (this is the first clobber, there may be more)")]
+#[error("would clobber non-default cell at row {row_ix}, column {col_ix} (this is the first clobber, there may be more)")]
 pub struct WouldClobber {
-    row_n: usize,
-    col_n: usize,
+    row_ix: usize,
+    col_ix: usize,
 }
 
-fn is_default<T: Default + PartialEq>(t: &T) -> bool {
+fn is_empty<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
+}
+
+fn is_occupied<T: Default + PartialEq>(t: &T) -> bool {
+    !is_empty(t)
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Add<Self> for &Grid<WIDTH, HEIGHT, CellT>
@@ -50,21 +54,21 @@ where
 
     fn add(self, rhs: Self) -> Self::Output {
         let mut result = Grid::<WIDTH, HEIGHT, CellT>::default();
-        for (((row_n, col_n, lhs), rhs), dest) in self
+        for (((row_ix, col_ix, lhs), rhs), dest) in self
             .rows
             .iter()
             .enumerate()
-            .flat_map(|(row_n, row)| {
+            .flat_map(|(row_ix, row)| {
                 row.iter()
                     .enumerate()
-                    .map(move |(col_n, cell)| (row_n, col_n, cell))
+                    .map(move |(col_ix, cell)| (row_ix, col_ix, cell))
             })
             .zip(rhs.rows.iter().flatten())
             .zip(result.rows.iter_mut().flatten())
         {
-            match (is_default(lhs), is_default(rhs)) {
+            match (is_empty(lhs), is_empty(rhs)) {
                 (false, false) => {
-                    return Err(WouldClobber { row_n, col_n });
+                    return Err(WouldClobber { row_ix, col_ix });
                 }
                 (false, true) => *dest = lhs.clone(),
                 (true, false) => *dest = rhs.clone(),
@@ -158,6 +162,20 @@ where
             .map(Result::unwrap)
             .last()
     }
+
+    pub fn with_solid_rows_cleared(mut self) -> Self {
+        // outer loop is necessary because inner won't check the shifted row
+        // could also do a mark and sweep
+        while self.rows.iter().any(|row| row.iter().all(is_occupied)) {
+            for row_ix in (0..HEIGHT).rev() {
+                if self.rows[row_ix].iter().all(is_occupied) {
+                    self.rows[row_ix] = Self::empty_row();
+                    self.rows[..=row_ix].rotate_right(1);
+                }
+            }
+        }
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -225,7 +243,10 @@ mod tests {
                 [. . # .],
                 [. . . .],
             ]),
-            Err(WouldClobber { row_n: 1, col_n: 2 })
+            Err(WouldClobber {
+                row_ix: 1,
+                col_ix: 2
+            })
         )
     }
 
@@ -323,5 +344,45 @@ mod tests {
     #[test]
     fn shift_right_pushes_shifted_column_off_edge() {
         assert_eq!(grid![[# #]].shr(1), grid![[. #]])
+    }
+
+    #[test]
+    fn solid_row_is_cleared() {
+        assert_eq!(
+            grid![
+                [# . .],
+                [# # #],
+                [. # .],
+            ]
+            .with_solid_rows_cleared(),
+            grid![
+                [. . .],
+                [# . .],
+                [. # .],
+            ]
+        )
+    }
+
+    #[test]
+    fn multiple_solid_rows_cleared() {
+        assert_eq!(
+            grid![
+                [# . .],
+                [# # #],
+                [# # #],
+                [. # .],
+                [# # #],
+                [. . #],
+            ]
+            .with_solid_rows_cleared(),
+            grid![
+                [. . .],
+                [. . .],
+                [. . .],
+                [# . .],
+                [. # .],
+                [. . #],
+            ]
+        )
     }
 }
