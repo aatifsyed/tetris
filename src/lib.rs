@@ -1,5 +1,8 @@
 use array_macro::array;
-use std::{fmt, ops};
+use std::{
+    fmt,
+    ops::{self, BitAnd},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 // choice: static array, not hashmap of coords, probably better optimised
@@ -78,37 +81,6 @@ where
         }
         Ok(result)
     }
-}
-
-mod impl_bitand {
-    use super::{Grid, WouldClobber};
-    use std::ops;
-
-    macro_rules! impl_bitand {
-        (lhs = $lhs:ty, rhs = $rhs:ty) => {
-            impl_bitand!(
-                lhs = $lhs,
-                rhs = $rhs,
-                fragment = (|l: $lhs, r: $rhs| (&l).bitand(&r))
-            );
-        };
-        (lhs = $lhs:ty, rhs = $rhs:ty, fragment = $frag:tt) => {
-            impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::BitAnd<$rhs> for $lhs
-            where
-                CellT: Default + PartialEq + Clone,
-            {
-                type Output = Result<Grid<WIDTH, HEIGHT, CellT>, WouldClobber>;
-
-                fn bitand(self, rhs: $rhs) -> Self::Output {
-                    ($frag)(self, rhs)
-                }
-            }
-        };
-    }
-
-    impl_bitand!(lhs = &Grid<WIDTH, HEIGHT, CellT>, rhs = Grid<WIDTH, HEIGHT, CellT>);
-    impl_bitand!(lhs = Grid<WIDTH, HEIGHT, CellT>, rhs = &Grid<WIDTH, HEIGHT, CellT>, fragment = (|l: Grid<WIDTH, HEIGHT, _>, r|(l.bitand(r))) );
-    impl_bitand!(lhs = Grid<WIDTH, HEIGHT, CellT>, rhs = Grid<WIDTH, HEIGHT, CellT>);
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Shr<usize> for Grid<WIDTH, HEIGHT, CellT>
@@ -207,12 +179,12 @@ where
     /// ]));
     /// ```
     pub fn drop(self, rhs: Self) -> Option<Self> {
-        let mut furthest = (self.clone() & rhs.clone()).ok()?;
+        let mut furthest = self.bitand(&rhs).ok()?;
 
         // bound by HEIGHT to catch an empty rhs
         for shift in 0..HEIGHT {
             match rhs.clone().try_shift_down(shift) {
-                Some(shifted) => match self.clone() & shifted {
+                Some(shifted) => match self.bitand(&shifted) {
                     Ok(new_furthest) => furthest = new_furthest,
                     Err(_) => break,
                 },
@@ -314,6 +286,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bitand() {
+        assert_eq!(grid![[#]].bitand(&grid![[.]]), Ok(grid![[#]]));
+    }
+
+    #[test]
     fn cant_shift_off_edge() {
         assert_eq!(grid![[#]].try_shift_down(1), None)
     }
@@ -326,7 +303,7 @@ mod tests {
                 [. # # .], // row 1
                 [. . . .], // row 2
             ]
-            .bitand(grid![
+            .bitand(&grid![
                 [. . . .],
                 [. . # .],
                 [. . . .],
@@ -482,7 +459,7 @@ mod tests {
                 [. . . . . . . . . .],
                 [# # # # # # # # . .]
             ]
-            .bitand(grid![
+            .bitand(&grid![
                 [. . . . . . . . # #],
                 [. . . . . . . . # #],
                 [. . . . . . . . . .],
