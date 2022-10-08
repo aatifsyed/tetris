@@ -46,13 +46,14 @@ pub fn is_occupied<T: Default + PartialEq>(t: &T) -> bool {
     !is_empty(t)
 }
 
-impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Add<Self> for &Grid<WIDTH, HEIGHT, CellT>
+impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::BitAnd<Self>
+    for &Grid<WIDTH, HEIGHT, CellT>
 where
     CellT: Default + PartialEq + Clone,
 {
     type Output = Result<Grid<WIDTH, HEIGHT, CellT>, WouldClobber>;
 
-    fn add(self, rhs: Self) -> Self::Output {
+    fn bitand(self, rhs: Self) -> Self::Output {
         let mut result = Grid::<WIDTH, HEIGHT, CellT>::default();
         for (((row_ix, col_ix, lhs), rhs), dest) in self
             .rows
@@ -79,35 +80,35 @@ where
     }
 }
 
-mod impl_add {
+mod impl_bitand {
     use super::{Grid, WouldClobber};
     use std::ops;
 
-    macro_rules! impl_add {
+    macro_rules! impl_bitand {
         (lhs = $lhs:ty, rhs = $rhs:ty) => {
-            impl_add!(
+            impl_bitand!(
                 lhs = $lhs,
                 rhs = $rhs,
-                fragment = (|l: $lhs, r: $rhs| (&l).add(&r))
+                fragment = (|l: $lhs, r: $rhs| (&l).bitand(&r))
             );
         };
         (lhs = $lhs:ty, rhs = $rhs:ty, fragment = $frag:tt) => {
-            impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Add<$rhs> for $lhs
+            impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::BitAnd<$rhs> for $lhs
             where
                 CellT: Default + PartialEq + Clone,
             {
                 type Output = Result<Grid<WIDTH, HEIGHT, CellT>, WouldClobber>;
 
-                fn add(self, rhs: $rhs) -> Self::Output {
+                fn bitand(self, rhs: $rhs) -> Self::Output {
                     ($frag)(self, rhs)
                 }
             }
         };
     }
 
-    impl_add!(lhs = &Grid<WIDTH, HEIGHT, CellT>, rhs = Grid<WIDTH, HEIGHT, CellT>);
-    impl_add!(lhs = Grid<WIDTH, HEIGHT, CellT>, rhs = &Grid<WIDTH, HEIGHT, CellT>, fragment = (|l: Grid<WIDTH, HEIGHT, _>, r|(l.add(r))) );
-    impl_add!(lhs = Grid<WIDTH, HEIGHT, CellT>, rhs = Grid<WIDTH, HEIGHT, CellT>);
+    impl_bitand!(lhs = &Grid<WIDTH, HEIGHT, CellT>, rhs = Grid<WIDTH, HEIGHT, CellT>);
+    impl_bitand!(lhs = Grid<WIDTH, HEIGHT, CellT>, rhs = &Grid<WIDTH, HEIGHT, CellT>, fragment = (|l: Grid<WIDTH, HEIGHT, _>, r|(l.bitand(r))) );
+    impl_bitand!(lhs = Grid<WIDTH, HEIGHT, CellT>, rhs = Grid<WIDTH, HEIGHT, CellT>);
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Shr<usize> for Grid<WIDTH, HEIGHT, CellT>
@@ -206,12 +207,12 @@ where
     /// ]));
     /// ```
     pub fn drop(self, rhs: Self) -> Option<Self> {
-        let mut furthest = (self.clone() + rhs.clone()).ok()?;
+        let mut furthest = (self.clone() & rhs.clone()).ok()?;
 
         // bound by HEIGHT to catch an empty rhs
         for shift in 0..HEIGHT {
             match rhs.clone().try_shift_down(shift) {
-                Some(shifted) => match self.clone() + shifted {
+                Some(shifted) => match self.clone() & shifted {
                     Ok(new_furthest) => furthest = new_furthest,
                     Err(_) => break,
                 },
@@ -308,7 +309,7 @@ macro_rules! grid {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::{Add, Shr};
+    use std::ops::{BitAnd, Shr};
 
     use super::*;
 
@@ -325,7 +326,7 @@ mod tests {
                 [. # # .], // row 1
                 [. . . .], // row 2
             ]
-            .add(grid![
+            .bitand(grid![
                 [. . . .],
                 [. . # .],
                 [. . . .],
@@ -481,7 +482,7 @@ mod tests {
                 [. . . . . . . . . .],
                 [# # # # # # # # . .]
             ]
-            .add(grid![
+            .bitand(grid![
                 [. . . . . . . . # #],
                 [. . . . . . . . # #],
                 [. . . . . . . . . .],
