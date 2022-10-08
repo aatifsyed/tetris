@@ -1,4 +1,5 @@
-use std::ops::{self, Add};
+use array_macro::array;
+use std::ops;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 // choice: static array, not hashmap of coords, probably better optimised
@@ -10,96 +11,140 @@ pub struct Grid<const WIDTH: usize, const HEIGHT: usize, CellT> {
     rows: [[CellT; WIDTH]; HEIGHT],
 }
 
-impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Add for Grid<WIDTH, HEIGHT, CellT>
+impl<const WIDTH: usize, const HEIGHT: usize, CellT> Grid<WIDTH, HEIGHT, CellT>
 where
-    CellT: ops::Add<CellT, Output = CellT> + Clone,
+    CellT: Default + Clone,
+{
+    fn empty_row() -> [CellT; WIDTH] {
+        array![CellT::default(); WIDTH]
+    }
+}
+
+impl<const WIDTH: usize, const HEIGHT: usize, CellT> Default for Grid<WIDTH, HEIGHT, CellT>
+where
+    CellT: Default + Clone,
+{
+    fn default() -> Self {
+        Self {
+            rows: array![Self::empty_row(); HEIGHT],
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq, Clone, Copy)]
+#[error("would clobber non-default cell at row {row_n}, column {col_n} (this is the first clobber, there may be more)")]
+pub struct WouldClobber {
+    row_n: usize,
+    col_n: usize,
+}
+
+fn is_default<T: Default + PartialEq>(t: &T) -> bool {
+    t == &T::default()
+}
+
+impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Add for &Grid<WIDTH, HEIGHT, CellT>
+where
+    CellT: Default + PartialEq + Clone,
+{
+    type Output = Result<Grid<WIDTH, HEIGHT, CellT>, WouldClobber>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        // todo: this function is doing too much
+        let mut result = Grid::<WIDTH, HEIGHT, CellT>::default();
+        let mut clobbered = None;
+        for (((row_n, col_n, lhs), rhs), dest) in self
+            .rows
+            .iter()
+            .enumerate()
+            .flat_map(|(row_n, row)| {
+                row.iter()
+                    .enumerate()
+                    .map(move |(col_n, cell)| (row_n, col_n, cell))
+            })
+            .zip(rhs.rows.iter().flatten())
+            .zip(result.rows.iter_mut().flatten())
+        {
+            match (is_default(lhs), is_default(rhs)) {
+                (false, false) => {
+                    clobbered.replace(WouldClobber { row_n, col_n });
+                }
+                (false, true) => *dest = lhs.clone(),
+                (true, false) => *dest = rhs.clone(),
+                (true, true) => (),
+            }
+        }
+        match clobbered {
+            Some(err) => Err(err),
+            None => Ok(result),
+        }
+    }
+}
+
+impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Shr<usize> for Grid<WIDTH, HEIGHT, CellT>
+where
+    CellT: Default,
 {
     type Output = Self;
 
-    fn add(mut self, rhs: Self) -> Self::Output {
-        for (this, other) in self
-            .rows
-            .iter_mut()
-            .flatten()
-            .zip(rhs.rows.iter().flatten())
-        {
-            *this = this.clone().add(other.clone())
+    fn shr(mut self, rhs: usize) -> Self::Output {
+        for row in self.rows.iter_mut() {
+            if let Some(rightmost_cell) = row.last_mut() {
+                *rightmost_cell = Default::default()
+            }
+            if WIDTH > 1 {
+                row.rotate_right(rhs)
+            }
         }
         self
     }
 }
 
-impl<const WIDTH: usize, const HEIGHT: usize> Grid<WIDTH, HEIGHT, CellState> {
-    const fn empty_row() -> [CellState; WIDTH] {
-        // todo: not require Copy for CellState by going through an intermediary,
-        //       array_macro, or MaybeUninit. Could keep this as const.
-        [CellState::Unoccupied; WIDTH]
-    }
-    const fn empty() -> Self {
-        Self {
-            rows: [Self::empty_row(); HEIGHT],
+impl<const WIDTH: usize, const HEIGHT: usize, CellT> Grid<WIDTH, HEIGHT, CellT>
+where
+    CellT: Default + Clone,
+{
+    pub fn shift_up(mut self, rhs: usize) -> Self {
+        if HEIGHT >= 1 {
+            self.rows[0] = Self::empty_row();
+            self.rows.rotate_left(rhs);
         }
+        self
     }
-    pub fn drop(&self, mut shape: Self) -> Self {
-        // todo: optimise so that we just get the collision point and bump that many rows
-        // choice: we could signal to the caller that something else happened
-        //         (like the shape was slid all the way up). Depends on future usecases
-        while self.collides(&shape) {
-            shape = shape.bump_up()
-        }
-        // bumped up will eventually be blank, so this terminates
-        self.clone().add(shape)
-    }
-    fn collides(&self, other: &Self) -> bool {
-        for (self_cell, other_cell) in self.rows.iter().flatten().zip(other.rows.iter().flatten()) {
-            if let (CellState::Occupied, CellState::Occupied) = (self_cell, other_cell) {
-                return true;
-            }
-        }
-        false
-    }
-    fn bump_up(&self) -> Self {
-        let mut bumped = Self::empty();
-        for (src, dst) in self.rows.iter().skip(1).zip(bumped.rows.iter_mut()) {
-            *dst = *src
-        }
-        bumped
-    }
+}
 
-    fn bump_right(&self) -> Self {
-        let mut bumped = *self;
-        for row in bumped.rows.iter_mut() {
-            if let Some(rightmost_cell) = row.last_mut() {
-                *rightmost_cell = CellState::Unoccupied
-            }
-            if WIDTH >= 1 {
-                row.rotate_right(1)
+impl<const WIDTH: usize, const HEIGHT: usize, CellT> Grid<WIDTH, HEIGHT, CellT>
+where
+    CellT: Default + Clone + PartialEq,
+{
+    pub fn drop(self, rhs: Self) -> Self {
+        use ops::Add;
+        match self.add(&rhs) {
+            Ok(masked) => masked,
+            // HEIGHT = 3; WIDTH = 4
+            // 0  . . . .   . . . .
+            // 1  . # # . + . . . . => WouldClober
+            // 2  # # . .   # . . .
+            Err(WouldClobber { row_n, .. }) => {
+                self.shift_up(HEIGHT - row_n).add(&rhs).expect("fucked it")
             }
         }
-        bumped
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CellState {
+    // The reason we do a song and dance with `Default` above is because
+    // putting information in `Occupied` is now trivial - a likely extension for
+    // the business (e.g adding colours)
     Occupied,
     #[default]
     Unoccupied,
 }
 
-impl ops::Add for CellState {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (CellState::Unoccupied, CellState::Unoccupied) => CellState::Unoccupied,
-            _ => CellState::Occupied,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::ops::{Add, Shr};
+
     use super::*;
 
     macro_rules! grid {
@@ -125,17 +170,34 @@ mod tests {
 
     #[test]
     fn bump_empty() {
-        let _: Grid<0, 0, CellState> = grid![].bump_up();
+        let _: Grid<0, 0, CellState> = grid![].shift_up(1);
     }
 
     #[test]
     fn bump_single_row_clears_it() {
-        assert_eq!(grid![[#]].bump_up(), grid![[.]]);
+        assert_eq!(grid![[#]].shift_up(1), grid![[.]]);
     }
 
     #[test]
     fn bumped_row_falls_off_edge() {
-        assert_eq!(grid![[#],[#]].bump_up(), grid![[#],[.]])
+        assert_eq!(grid![[#],[#]].shift_up(1), grid![[#],[.]])
+    }
+
+    #[test]
+    fn clobbering() {
+        assert_eq!(
+            grid![
+                [. . . .], // row 0
+                [. . . .], // row 1
+                [. . . .], // row 2
+            ]
+            .add(&grid![
+                [. . . .],
+                [. . . .],
+                [. . . .],
+            ]),
+            Ok(Grid::default())
+        )
     }
 
     #[test]
@@ -196,7 +258,7 @@ mod tests {
             grid![
                 [# .]
             ]
-            .bump_right(),
+            .shr(1),
             grid![[. #]]
         )
     }
