@@ -1,17 +1,5 @@
 [package]
 name = "tetris"
-description = """
-DRW Tetris
-==========
-
-For each line in stdin, interpret that line as a comma-separated sequence of INPUT_BLOCK, where
-INPUT_BLOCK : { Q, Z, S, T, I, L, J } ~ DIGIT
-
-Each INPUT_BLOCK is placed on a 10 * 103 GRID at INPUT_BLOCK.DIGIT position, and dropped.
-Rows clear in typical tetris style.
-
-After the sequence has been processed, print the height of the tallest occupied row.
-"""
 version = "0.1.0"
 edition = "2021"
 
@@ -22,6 +10,7 @@ anyhow = "1.0.65"
 array-macro = "2.1.5"
 clap = { version = "4.0.10", features = ["derive"] }
 derive_more = "0.99.17"
+indoc = "1.0.7"
 recap = "0.1.2"
 serde = { version = "1.0.145", features = ["derive"] }
 strum = { version = "0.24.1", features = ["derive"] }
@@ -29,4 +18,3 @@ thiserror = "1.0.37"
 
 [dev-dependencies]
 assert_cmd = "2.0.4"
-indoc = "1.0.7"

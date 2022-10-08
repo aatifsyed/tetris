@@ -1,35 +1,86 @@
-use std::{io, ops::Shr, str::FromStr};
-
 use anyhow::Context;
 use clap::Parser;
 use derive_more::From;
+use indoc::indoc;
 use recap::Recap;
 use serde::Deserialize;
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader, Write},
+    ops::Shr,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use strum::EnumString;
 use tetris::{is_occupied, CellState, Grid};
 
-const WIDTH: usize = 10; // from brief
-const SAFE_HEIGHT: usize = 100 /* from brief */ + 3 /* tallest block */;
+/// From brief
+const WIDTH: usize = 10;
+/// From brief, with allowance for the tallest block
+const HEIGHT: usize = 100 + 3;
 
-// todo: nicer args, add tracing etc
+// todo: add tracing etc
 #[derive(Debug, Parser)]
-#[command(about, override_usage = "tetris < input.txt")]
-struct Args;
+#[command(about = indoc!("
+    DRW Tetris
+    ==========
+    
+    For each line in the input, interpret that line as a comma-separated sequence of INPUT_BLOCK, where
+    INPUT_BLOCK : { 'Q', 'Z', 'S', 'T', 'I', 'L', 'J' } + DIGIT
+    
+    Each INPUT_BLOCK is placed on a 10 * 103 GRID at INPUT_BLOCK.DIGIT position, and dropped.
+    Rows clear in typical tetris style.
+    
+    After the sequence has been processed, print the height of the tallest occupied row.
+    "))]
+struct Args {
+    /// The input file (defaults to stdin)
+    #[arg(short, long)]
+    infile: Option<PathBuf>,
+    /// The output file (defaults to stdout)
+    #[arg(short, long)]
+    outfile: Option<PathBuf>,
+}
 
 fn main() -> anyhow::Result<()> {
-    Args::parse();
-    for line in io::stdin().lines() {
-        let input_blocks = parse_line(&line.context("couldn't read line from stdin")?)
-            .context("couldn't parse line")?;
-        println!(
+    let args = Args::parse();
+    let infile = or_stdin(args.infile)?;
+    let mut outfile = or_stdout(args.outfile)?;
+    for line in infile.lines() {
+        let input_blocks =
+            parse_line(&line.context("couldn't read input")?).context("couldn't parse line")?;
+        writeln!(
+            outfile,
             "{}",
-            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), input_blocks)
+            highest_block_after_processing(Grid::<WIDTH, HEIGHT>::default(), input_blocks)
                 .context("couldn't place input block on congested grid")?
-        );
+        )
+        .context("couldn't write output")?;
     }
+    outfile.flush().context("couldn't write output")?;
     Ok(())
 }
 
+fn or_stdin(path: Option<impl AsRef<Path>>) -> anyhow::Result<Box<dyn BufRead>> {
+    if let Some(path) = path {
+        match File::open(path) {
+            Ok(read) => Ok(Box::new(BufReader::new(read))),
+            Err(e) => Err(e).context("couldn't open input"),
+        }
+    } else {
+        Ok(Box::new(io::stdin().lock()))
+    }
+}
+fn or_stdout(path: Option<impl AsRef<Path>>) -> anyhow::Result<Box<dyn Write>> {
+    if let Some(path) = path {
+        match File::create(path) {
+            Ok(write) => Ok(Box::new(write)),
+            Err(e) => Err(e).context("couldn't open output"),
+        }
+    } else {
+        Ok(Box::new(io::stdout()))
+    }
+}
 /// drop each [InputBlock] onto a [Grid], and clear rows, returning the final state of the grid
 fn process_blocks<const WIDTH: usize, const HEIGHT: usize>(
     mut grid: Grid<WIDTH, HEIGHT>,
@@ -265,7 +316,7 @@ mod tests {
     #[test]
     fn highest_block_example1() -> anyhow::Result<()> {
         assert_eq!(
-            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), EXAMPLE1)?,
+            highest_block_after_processing(Grid::<WIDTH, HEIGHT>::default(), EXAMPLE1)?,
             1
         );
         Ok(())
@@ -274,7 +325,7 @@ mod tests {
     #[test]
     fn highest_block_example2() -> anyhow::Result<()> {
         assert_eq!(
-            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), EXAMPLE2)?,
+            highest_block_after_processing(Grid::<WIDTH, HEIGHT>::default(), EXAMPLE2)?,
             4
         );
         Ok(())
@@ -283,7 +334,7 @@ mod tests {
     #[test]
     fn highest_block_example3() -> anyhow::Result<()> {
         assert_eq!(
-            highest_block_after_processing(Grid::<WIDTH, SAFE_HEIGHT>::default(), EXAMPLE3)?,
+            highest_block_after_processing(Grid::<WIDTH, HEIGHT>::default(), EXAMPLE3)?,
             3
         );
         Ok(())
