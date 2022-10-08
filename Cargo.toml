@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.65"
 array-macro = "2.1.5"
+clap = { version = "4.0.10", features = ["derive"] }
 derive_more = "0.99.17"
 generic-new = "0.2.0"
 recap = "0.1.2"

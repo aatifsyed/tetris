@@ -38,11 +38,11 @@ pub struct WouldClobber {
     col_ix: usize,
 }
 
-fn is_empty<T: Default + PartialEq>(t: &T) -> bool {
+pub fn is_empty<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-fn is_occupied<T: Default + PartialEq>(t: &T) -> bool {
+pub fn is_occupied<T: Default + PartialEq>(t: &T) -> bool {
     !is_empty(t)
 }
 
