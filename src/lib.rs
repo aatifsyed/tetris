@@ -42,16 +42,14 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Add for &Grid<WIDTH, HEIGHT, CellT>
+impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Add<Self> for &Grid<WIDTH, HEIGHT, CellT>
 where
     CellT: Default + PartialEq + Clone,
 {
     type Output = Result<Grid<WIDTH, HEIGHT, CellT>, WouldClobber>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        // todo: this function is doing too much
         let mut result = Grid::<WIDTH, HEIGHT, CellT>::default();
-        let mut clobbered = None;
         for (((row_n, col_n, lhs), rhs), dest) in self
             .rows
             .iter()
@@ -66,18 +64,46 @@ where
         {
             match (is_default(lhs), is_default(rhs)) {
                 (false, false) => {
-                    clobbered.replace(WouldClobber { row_n, col_n });
+                    return Err(WouldClobber { row_n, col_n });
                 }
                 (false, true) => *dest = lhs.clone(),
                 (true, false) => *dest = rhs.clone(),
                 (true, true) => (),
             }
         }
-        match clobbered {
-            Some(err) => Err(err),
-            None => Ok(result),
-        }
+        Ok(result)
     }
+}
+
+mod impl_add {
+    use super::{Grid, WouldClobber};
+    use std::ops;
+
+    macro_rules! impl_add {
+        (lhs = $lhs:ty, rhs = $rhs:ty) => {
+            impl_add!(
+                lhs = $lhs,
+                rhs = $rhs,
+                fragment = (|l: $lhs, r: $rhs| (&l).add(&r))
+            );
+        };
+        (lhs = $lhs:ty, rhs = $rhs:ty, fragment = $frag:tt) => {
+            impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Add<$rhs> for $lhs
+            where
+                CellT: Default + PartialEq + Clone,
+            {
+                type Output = Result<Grid<WIDTH, HEIGHT, CellT>, WouldClobber>;
+
+                fn add(self, rhs: $rhs) -> Self::Output {
+                    ($frag)(self, rhs)
+                }
+            }
+        };
+    }
+
+    impl_add!(lhs = &Grid<WIDTH, HEIGHT, CellT>, rhs = Grid<WIDTH, HEIGHT, CellT>);
+    impl_add!(lhs = Grid<WIDTH, HEIGHT, CellT>, rhs = &Grid<WIDTH, HEIGHT, CellT>, fragment = (|l: Grid<WIDTH, HEIGHT, _>, r|(l.add(r))) );
+    impl_add!(lhs = Grid<WIDTH, HEIGHT, CellT>, rhs = Grid<WIDTH, HEIGHT, CellT>);
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize, CellT> ops::Shr<usize> for Grid<WIDTH, HEIGHT, CellT>
@@ -103,10 +129,19 @@ impl<const WIDTH: usize, const HEIGHT: usize, CellT> Grid<WIDTH, HEIGHT, CellT>
 where
     CellT: Default + Clone,
 {
-    pub fn shift_up(mut self, rhs: usize) -> Self {
-        if HEIGHT >= 1 {
-            self.rows[0] = Self::empty_row();
-            self.rows.rotate_left(rhs);
+    pub fn shift_down(mut self, rhs: usize) -> Self {
+        for _ in 0..rhs {
+            self = self.bump_down();
+        }
+        self
+    }
+
+    pub fn bump_down(mut self) -> Self {
+        if let Some(last_row) = self.rows.last_mut() {
+            *last_row = Self::empty_row();
+        }
+        if self.rows.len() != 0 {
+            self.rows.rotate_right(1);
         }
         self
     }
@@ -116,18 +151,12 @@ impl<const WIDTH: usize, const HEIGHT: usize, CellT> Grid<WIDTH, HEIGHT, CellT>
 where
     CellT: Default + Clone + PartialEq,
 {
-    pub fn drop(self, rhs: Self) -> Self {
-        use ops::Add;
-        match self.add(&rhs) {
-            Ok(masked) => masked,
-            // HEIGHT = 3; WIDTH = 4
-            // 0  . . . .   . . . .
-            // 1  . # # . + . . . . => WouldClober
-            // 2  # # . .   # . . .
-            Err(WouldClobber { row_n, .. }) => {
-                self.shift_up(HEIGHT - row_n).add(&rhs).expect("fucked it")
-            }
-        }
+    pub fn drop(self, rhs: Self) -> Option<Self> {
+        (0..HEIGHT)
+            .map(|shift| self.clone() + rhs.clone().shift_down(shift))
+            .take_while(Result::is_ok)
+            .map(Result::unwrap)
+            .last()
     }
 }
 
@@ -169,18 +198,18 @@ mod tests {
     }
 
     #[test]
-    fn bump_empty() {
-        let _: Grid<0, 0, CellState> = grid![].shift_up(1);
+    fn shift_down_emtpy() {
+        let _: Grid<0, 0, CellState> = grid![].shift_down(1);
     }
 
     #[test]
-    fn bump_single_row_clears_it() {
-        assert_eq!(grid![[#]].shift_up(1), grid![[.]]);
+    fn shift_down_clears_single_row() {
+        assert_eq!(grid![[#]].shift_down(1), grid![[.]]);
     }
 
     #[test]
-    fn bumped_row_falls_off_edge() {
-        assert_eq!(grid![[#],[#]].shift_up(1), grid![[#],[.]])
+    fn shift_down_pushes_shifted_row_off_edge() {
+        assert_eq!(grid![[#],[#]].shift_down(1), grid![[.],[#]])
     }
 
     #[test]
@@ -188,26 +217,34 @@ mod tests {
         assert_eq!(
             grid![
                 [. . . .], // row 0
-                [. . . .], // row 1
+                [. # # .], // row 1
                 [. . . .], // row 2
             ]
-            .add(&grid![
+            .add(grid![
                 [. . . .],
-                [. . . .],
+                [. . # .],
                 [. . . .],
             ]),
-            Ok(Grid::default())
+            Err(WouldClobber { row_n: 1, col_n: 2 })
         )
     }
 
     #[test]
     fn drop_single() {
-        assert_eq!(grid!([.]).drop(grid!([#])), grid!([#]))
+        assert_eq!(grid!([.]).drop(grid!([#])), Some(grid!([#])))
     }
 
     #[test]
-    fn drop_overlapping_terminates() {
-        assert_eq!(grid!([#]).drop(grid!([#])), grid!([#]))
+    fn drop_through_air() {
+        assert_eq!(
+            grid!([.], [.], [.]).drop(grid!([#], [.], [.])),
+            Some(grid!([.], [.], [#]))
+        )
+    }
+
+    #[test]
+    fn drop_with_no_solution() {
+        assert_eq!(grid!([#]).drop(grid!([#])), None)
     }
 
     #[test]
@@ -219,15 +256,15 @@ mod tests {
                 [#],
             ]
             .drop(grid![
-                [.],
-                [.],
                 [#],
+                [.],
+                [.],
             ]),
-            grid![
+            Some(grid![
                 [.],
                 [#],
                 [#],
-            ]
+            ])
         )
     }
 
@@ -240,26 +277,51 @@ mod tests {
                 [. #],
             ]
             .drop(grid![
-                [. .],
-                [. .],
                 [# #],
+                [. .],
+                [. .],
             ]),
-            grid![
+            Some(grid![
                 [. .],
                 [# #],
                 [. #],
-            ]
+            ])
         )
     }
 
     #[test]
-    fn bump_right() {
+    fn drop_does_not_warp_past_overhang() {
         assert_eq!(
             grid![
-                [# .]
+                [. .],
+                [# #],
+                [. .],
             ]
-            .shr(1),
-            grid![[. #]]
+            .drop(grid![
+                [# #],
+                [. .],
+                [. .],
+            ]),
+            Some(grid![
+                [# #],
+                [# #],
+                [. .],
+            ])
         )
+    }
+
+    #[test]
+    fn shift_right_empty() {
+        let _: Grid<0, 0, CellState> = grid![].shr(1);
+    }
+
+    #[test]
+    fn shift_right_clears_single_column() {
+        assert_eq!(grid![[#]].shr(1), grid![[.]]);
+    }
+
+    #[test]
+    fn shift_right_pushes_shifted_column_off_edge() {
+        assert_eq!(grid![[# #]].shr(1), grid![[. #]])
     }
 }
